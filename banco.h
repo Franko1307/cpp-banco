@@ -1,48 +1,80 @@
+/*
+ * Autor: Francisco Enrique Córdova González
+ * Descripción:
+ + Esta es una librería que permite emular un banco dado una hora
+ + a la que el banco se abra y a la que se cierre, el número de cajeras
+ + y el usuario es libre de meter clientes cuando le plazca.
+ + Y el banco puede o no emular la actividad en tiempo real y al final,
+ + independientemente muestra en pantalla una ola de datos importantes
+ + como el max tiempo libre de una cajera, número de clientes totales, etc...
+ * Última actualización: 3 de Marzo de 2016
+ * La librería viene con un archivo .cpp de ejemplo que ilustra mejor cómo
+ * sacarle el máximo partido a esta librería
+ */
+//Directivas
 #include <iostream>
 #include <string>
-#include "cajera.h"
 #include <cstdlib>
-
+#include "cajera.h"
+/*
+ * Clase banco
+ * Es una clase normal, no hay nada que destacar.
+ */
 class banco {
-  size_t max_clientes;
+  //Ola de datos para mostrar en pantalla.
+  size_t max_clientes; //Número máximo de clientes en el día
   size_t hora_cierre;
-  size_t max_espera;
-  size_t max_cola;
+  size_t max_espera; //Máxima espera de un cliente en minutos
+  size_t max_cola; //Cola más larga en el banco
   size_t max_tiempo_libre_cajera;
   size_t hora_actual;
-  size_t cantidad_clientes;
-  size_t cantidad_cajeras;
-  cajera *cajeras;
+  size_t cantidad_clientes; //Cantidad clientes actuales en el banco
+  size_t cantidad_cajeras; //Cantidad cajeras actuales en el banco
+  cajera *cajeras; //cajera es una estructura y las cajeras se almacenan en forma de pila
 public:
   banco(size_t cajeras, size_t hora_abrir, size_t hora_cerrar);
   ~banco();
   void agregar_cliente(size_t hora_llegada, size_t tiempo_operacion);
   void aumentar_un_minuto();
   void agregar_cajera();
+  void checa_cajera_libre(cajera *);
+  void checa_cajeras_libre(cajera *);
+  void c_solicita_cliente(cajera *);
+  void c_desocupate(cajera *);
+  void checa_cajeras_no_libres(cajera *);
   size_t obtenerNumeroCajeras(){return cantidad_cajeras;}
   size_t obtenerMaxCola(){return max_cola;}
   void imprimeBanco();
 
 };
-banco::banco (size_t cajeras, size_t hora_abrir, size_t hora_cerrar) {
+banco::banco (size_t _cajeras, size_t hora_abrir, size_t hora_cerrar) {
   max_clientes = 0;
   max_espera = 0;
   max_tiempo_libre_cajera = 0;
+  cajeras = NULL;
   hora_actual = hora_abrir;
   hora_cierre = hora_cerrar;
   cantidad_clientes = 0;
   cantidad_cajeras = 0;
   max_cola = 0;
-  for (size_t i = 0; i < cajeras; ++i) agregar_cajera();
+  for (size_t i = 0; i < _cajeras; ++i) agregar_cajera();
 }
 banco::~banco() {
-  cajera *cajera_aux = cajeras;
-  cajera *aux;
-  for (size_t i = 0; i < cantidad_cajeras; ++i) {
-    aux = cajera_aux;
-    cajera_aux = cajera_aux->siguiente_cajera;
-    delete aux;
+  cajera *iterador;
+  while (cajeras) {
+    iterador = cajeras;
+    cajeras = iterador->siguiente_cajera;
+    delete iterador;
   }
+  max_clientes = 0;
+  max_espera = 0;
+  cajeras = NULL;
+  max_tiempo_libre_cajera = 0;
+  hora_actual = 0;
+  hora_cierre = 0;
+  cantidad_clientes = 0;
+  cantidad_cajeras = 0;
+  max_cola = 0;
 }
 void banco::imprimeBanco() {
   cajera *cajera_actual = cajeras;
@@ -63,52 +95,62 @@ void banco::imprimeBanco() {
   std::cout << "Max espera de un cliente: " << max_espera << std::endl;
   std::cout << "Hora actual: " << hora_actual << std::endl;
 }
+void banco::checa_cajera_libre(cajera *cajera_actual) {
+  cajera *_cajera = cajera_actual;
+  if (_cajera->libre) {
+    _cajera->tiempo_libre++;
+    _cajera->max_tiempo_libre++;
+    if (max_tiempo_libre_cajera < _cajera->max_tiempo_libre)
+      max_tiempo_libre_cajera = _cajera->max_tiempo_libre;
+  }
+}
+void banco::checa_cajeras_libre(cajera *cajera_inicio) {
+  cajera *_cajera = cajera_inicio;
+  while (_cajera) {
+    checa_cajera_libre(_cajera);
+    _cajera = _cajera->siguiente_cajera;
+  }
+}
+void banco::c_solicita_cliente(cajera *cajera_actual) {
+  cajera *_cajera = cajera_actual;
+  cliente *_cliente = _cajera->cliente_actual;
+  _cajera->cliente_actual = _cliente->siguiente_cliente;
 
+  if (max_espera < (hora_actual - _cliente->hora_llegada))
+    max_espera = hora_actual - _cliente->hora_llegada;
+
+  delete _cliente;
+
+  _cajera->tiempo_liberar_cliente = hora_actual + _cajera->cliente_actual->tiempo_accion;
+  _cajera->tiempo_ocupada += _cajera->cliente_actual->tiempo_accion;
+  _cajera->numero_clientes_en_cola--;
+  --cantidad_clientes;
+}
+void banco::c_desocupate(cajera *cajera_actual) {
+  cajera *_cajera = cajera_actual;
+  cliente *_cliente = _cajera->cliente_actual;
+  _cajera->cliente_actual = NULL;
+  _cajera->ultimo_cliente = NULL;
+  _cajera->libre = true;
+  _cajera->numero_clientes_en_cola = 0;
+  _cajera->max_tiempo_libre = 0;
+  if (max_espera < (hora_actual - _cliente->hora_llegada))
+    max_espera = hora_actual - _cliente->hora_llegada;
+  delete _cliente;
+  --cantidad_clientes;
+}
+void banco::checa_cajeras_no_libres(cajera *cajera_inicio) {
+  cajera *_cajera = cajera_inicio;
+  while (_cajera) {
+    if (!_cajera->libre && _cajera->tiempo_liberar_cliente <= hora_actual)
+      (_cajera->cliente_actual->siguiente_cliente) ? c_solicita_cliente(_cajera) : c_desocupate(_cajera);
+    _cajera = _cajera->siguiente_cajera;
+  }
+}
 void banco::aumentar_un_minuto() {
   ++hora_actual;
-  cajera *cajera_actual = cajeras;
-  cliente *auxCliente;
-  //Checamos si una cajera esta libre
-  //De ser así, le aumentamos el max tiempo libre y el tiempo libre que ha tenido
-  //En todo el día.
-  //Y checamos para guardar el max tiempo libre en general de todas las cajeras
-  for (size_t i = 0; i < cantidad_cajeras; ++i) {
-    if (cajera_actual->libre) {
-      cajera_actual->tiempo_libre++;
-      cajera_actual->max_tiempo_libre++;
-      if (max_tiempo_libre_cajera < cajera_actual->max_tiempo_libre) max_tiempo_libre_cajera = cajera_actual->max_tiempo_libre;
-    }
-    cajera_actual = cajera_actual->siguiente_cajera;
-  }
-  //Reiniciamos el puntero
-  cajera_actual = cajeras;
-  for (size_t i = 0; i < cantidad_cajeras; ++i) {
-    if (!cajera_actual->libre && cajera_actual->tiempo_liberar_cliente <= hora_actual) {
-      //Aquí quiere decir que ya terminamos con un cliente
-      //Checamos si hay otro en la fila.
-      if (cajera_actual->cliente_actual->siguiente_cliente != NULL) {
-        auxCliente = cajera_actual->cliente_actual;
-        cajera_actual->cliente_actual = cajera_actual->cliente_actual->siguiente_cliente;
-        if (max_espera < hora_actual - auxCliente->hora_llegada) max_espera = hora_actual - auxCliente->hora_llegada;
-        delete auxCliente;
-        cajera_actual->tiempo_liberar_cliente = hora_actual + cajera_actual->cliente_actual->tiempo_accion;
-        cajera_actual->tiempo_ocupada += cajera_actual->cliente_actual->tiempo_accion;
-        cajera_actual->numero_clientes_en_cola -= 1;
-        --cantidad_clientes;
-      } else {
-        cajera_actual->libre = true;
-        cajera_actual->numero_clientes_en_cola = 0;
-        cajera_actual->max_tiempo_libre = 0;
-        auxCliente = cajera_actual->cliente_actual;
-        if (max_espera < hora_actual - auxCliente->hora_llegada) max_espera = hora_actual - auxCliente->hora_llegada;
-        cajera_actual->cliente_actual = NULL;
-        cajera_actual->ultimo_cliente = NULL;
-        delete auxCliente;
-        --cantidad_clientes;
-      }
-    }
-    cajera_actual = cajera_actual->siguiente_cajera;
-  }
+  checa_cajeras_libre(cajeras);
+  checa_cajeras_no_libres(cajeras);
 }
 
 void banco::agregar_cliente(size_t hora_llegada, size_t tiempo_operacion) {
